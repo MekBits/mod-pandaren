@@ -15,9 +15,9 @@
 -- language line, and mirroring it would give Alliance pandaren Shadowmeld
 -- and Darnassian.
 --
--- The rows are generated from an unmodified 3.3.5a client and empty override
--- tables. If your server's DBC files are modified (another race module that
--- ships its own DBC files), regenerate this file from yours.
+-- The rows are generated from an unmodified 3.3.5a client. If your server's DBC files
+-- or override tables differ (another race module that ships its own DBC
+-- files), regenerate this file from yours.
 --
 -- A row already in the table (another module overrode it and ran first) is
 -- not replaced: ON DUPLICATE KEY UPDATE applies the same rule to the mask

@@ -94,6 +94,8 @@ def main():
     ap.add_argument('--overrides')
     ap.add_argument('--columns', required=True)
     ap.add_argument('--out', required=True)
+    ap.add_argument('--source', default='an unmodified 3.3.5a client',
+                    help='what the input is, for the file header')
     a = ap.parse_args()
 
     cols = read_columns(a.columns)
@@ -145,7 +147,7 @@ def main():
 -- The source row is the EFFECTIVE outfit: sCharStartOutfitMap is filled in
 -- ascending ID order over CharStartOutfit.dbc and charstartoutfit_dbc
 -- together, so the highest ID for a race/class/sex wins. These rows come from
--- an unmodified 3.3.5a file and an empty table. A module that changes the
+-- {a.source}. A module that changes the
 -- source races' outfits (mod-individual-progression does) changes what a
 -- pandaren should start with: regenerate against your database.
 --

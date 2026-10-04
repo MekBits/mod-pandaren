@@ -11,10 +11,10 @@
 -- match would miss every one of them.
 --
 -- A DBC override replaces the whole row, so names and descriptions are
--- included. The rows come from an unmodified 3.3.5a Faction.dbc. If your
--- server's Faction.dbc is modified (another race module that ships its own
--- DBC files), regenerate this file from yours, or those changes are lost for
--- the factions listed here.
+-- included. The rows come from the Faction.dbc of an unmodified 3.3.5a client. If your
+-- server's Faction.dbc is a different one (another race module that ships its
+-- own DBC files), regenerate this file from yours, or those changes are lost
+-- for the factions listed here.
 --
 -- A faction already in faction_dbc (another module overrode it and ran
 -- first) is not replaced: ON DUPLICATE KEY UPDATE only adds the pandaren bits

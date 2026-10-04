@@ -253,6 +253,8 @@ def main():
     ap.add_argument('--srci-overrides')
     ap.add_argument('--sla-overrides')
     ap.add_argument('--out', required=True)
+    ap.add_argument('--source', default='an unmodified 3.3.5a client',
+                    help='what the input is, for the file header')
     a = ap.parse_args()
 
     sl = DBC(find(a.dbc, 'SkillLine.dbc'))
@@ -284,9 +286,9 @@ def main():
         '-- language line, and mirroring it would give Alliance pandaren Shadowmeld',
         '-- and Darnassian.',
         '--',
-        '-- The rows are generated from an unmodified 3.3.5a client and empty override',
-        "-- tables. If your server's DBC files are modified (another race module that",
-        '-- ships its own DBC files), regenerate this file from yours.',
+        f'-- The rows are generated from {a.source}. If your server\'s DBC files',
+        '-- or override tables differ (another race module that ships its own DBC',
+        '-- files), regenerate this file from yours.',
         '--',
         '-- A row already in the table (another module overrode it and ran first) is',
         '-- not replaced: ON DUPLICATE KEY UPDATE applies the same rule to the mask',

@@ -7,7 +7,7 @@
 -- The source row is the EFFECTIVE outfit: sCharStartOutfitMap is filled in
 -- ascending ID order over CharStartOutfit.dbc and charstartoutfit_dbc
 -- together, so the highest ID for a race/class/sex wins. These rows come from
--- an unmodified 3.3.5a file and an empty table. A module that changes the
+-- an unmodified 3.3.5a client. A module that changes the
 -- source races' outfits (mod-individual-progression does) changes what a
 -- pandaren should start with: regenerate against your database.
 --
