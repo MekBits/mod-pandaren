@@ -45,10 +45,12 @@ the .dbc: a free ID is free in both. Produce them as gen-race-skill-masks.py
 documents. Left out, the tables are taken to be empty, as on a fresh database
 (spell_dbc is not: AzerothCore ships rows of its own, so pass it).
 
---out writes Spell.dbc, SkillLine.dbc and SkillLineAbility.dbc with the new
-rows appended; client/build_patch.py does the same for a client.
+--rows writes the same rows for the client patch: client/rows/Spell.csv,
+SkillLine.csv, SkillLineAbility.csv and SpellIcon.racials.csv (the icons are
+MoP's own pandaren racial icons, shipped in the client patch).
 """
 import argparse
+import csv
 import os
 import re
 import struct
@@ -87,25 +89,34 @@ SLA_FIRST_ID = 31600
 SRCI_ID = 1068
 SRCI_FLAGS = 1170
 
+# SpellIcon rows for MoP's pandaren racial icons. Quaking Palm's file is MoP's
+# own name for it.
+ICONS = {
+    4401: 'Interface\\Icons\\PandarenRacial_Gourmand',
+    4402: 'Interface\\Icons\\PandarenRacial_Bouncy',
+    4403: 'Interface\\Icons\\PandarenRacial_InnerPeace',
+    4404: 'Interface\\Icons\\PandarenRacial_QuiveringPain',
+}
+
 RACIALS = [
     dict(id=80001, name='Gourmand', template=20552,
          desc='Cooking skill increased by $s1.',
-         over={133: 1467,          # Cooking's icon
+         over={133: 4401,
                110: 185,           # EffectMiscValue0 = SKILL_COOKING
                80: 14}),           # EffectBasePoints0; effective amount is +1
     dict(id=80002, name='Bouncy', template=24350,
          desc='Reduces falling damage.',
-         over={133: 1726,
+         over={133: 4402,
                80: 9}),            # 10 yards knocked off the fall distance
     dict(id=80003, name='Inner Peace', template=20552,
          desc='Experience gained from killing creatures increased by $s1%.',
-         over={133: 51,            # Inner Fire's icon
+         over={133: 4403,
                95: 200,            # EffectApplyAuraName0 = SPELL_AURA_MOD_XP_PCT
                110: 0,             # no skill id
                80: 9}),            # +10%
     dict(id=80004, name='Quaking Palm', template=20549,
          desc='Strikes the target with lightning speed, incapacitating them for $d.',
-         over={133: 249,           # Sap's icon -- a hand
+         over={133: 4404,
                3: 30,              # Mechanic = MECHANIC_SAPPED, so damage breaks it
                28: 1,              # instant, not War Stomp's cast time
                32: 4718594,        # Sap's AuraInterruptFlags: break on damage
@@ -177,7 +188,7 @@ def main():
     ap.add_argument('--srci-overrides', help='current skillraceclassinfo_dbc contents')
     ap.add_argument('--spell-overrides', help='current spell_dbc contents')
     ap.add_argument('--sql', required=True)
-    ap.add_argument('--out', help='also write client DBCs with the rows appended')
+    ap.add_argument('--rows', help='also write the rows for the client patch (client/rows)')
     a = ap.parse_args()
 
     # A free ID is free in the file AND in the override table. When the table
@@ -196,8 +207,9 @@ def main():
         if clash:
             sys.exit(f'{table}: ID(s) {clash} are already used. '
                      f'Move the constant in this script; do not delete their rows.')
-    if a.out:
-        os.makedirs(a.out, exist_ok=True)
+    taken = ids_in_dbc(find(a.dbc, 'SpellIcon.dbc')) & set(ICONS)
+    if taken:
+        sys.exit(f'SpellIcon ID(s) {sorted(taken)} are already used; move ICONS')
 
     cols = read_columns(a.columns)
 
@@ -238,9 +250,6 @@ def main():
             v[TIP0 + k] = 0
         newrows.append(struct.pack('<234I', *v))
         sqlrows.append(v)
-    if a.out:
-        d.write(os.path.join(a.out, 'Spell.dbc'), rows=d.rows + newrows, strings=bytes(strings))
-        print(f'  Spell.dbc: {len(d.rows)} + {len(newrows)} = {len(d.rows) + len(newrows)} rows')
 
     # ---- SkillLine.dbc --------------------------------------------------
     sl = DBC(find(a.dbc, 'SkillLine.dbc'))
@@ -254,11 +263,7 @@ def main():
     v[19] = 16712190                         # locale mask, as the stock rows use
     if SKILL_LINE in {sl.ints(r)[0] for r in sl.rows}:
         sys.exit(f'SkillLine.dbc: id {SKILL_LINE} already exists')
-    if a.out:
-        sl.write(os.path.join(a.out, 'SkillLine.dbc'),
-                 rows=sl.rows + [struct.pack('<%dI' % (sl.recsize // 4), *v)],
-                 strings=bytes(slstr))
-        print(f'  SkillLine.dbc: +1 row (id {SKILL_LINE} {SKILL_LINE_NAME!r})')
+    slrow = v
 
     # ---- SkillLineAbility.dbc -------------------------------------------
     sla = DBC(find(a.dbc, 'SkillLineAbility.dbc'))
@@ -269,9 +274,20 @@ def main():
         v[0], v[1], v[2], v[3] = SLA_FIRST_ID + i, SKILL_LINE, sp['id'], RACE_MASK
         slarows.append(struct.pack('<%dI' % n, *v))
         slasql.append((SLA_FIRST_ID + i, sp['id']))
-    if a.out:
-        sla.write(os.path.join(a.out, 'SkillLineAbility.dbc'), rows=sla.rows + slarows)
-        print(f'  SkillLineAbility.dbc: +{len(slarows)} rows from {SLA_FIRST_ID}')
+    if a.rows:
+        def write_csv(name, rows):
+            with open(os.path.join(a.rows, name + '.csv'), 'w', newline='', encoding='utf-8') as f:
+                w = csv.writer(f, lineterminator='\n')
+                w.writerow([f'c{i}' for i in range(len(rows[0]))])
+                w.writerows(rows)
+        write_csv('Spell', [[(text_at.get(x) or d.s(x)) if i in STRING_FIELDS else x
+                             for i, x in enumerate(v)] for v in sqlrows])
+        write_csv('SkillLine', [[SKILL_LINE_NAME if 3 <= i < 19 else
+                                 ('' if (20 <= i < 36 or 37 <= i < 53) else x)
+                                 for i, x in enumerate(slrow)]])
+        write_csv('SkillLineAbility', [list(struct.unpack('<%dI' % n, r)) for r in slarows])
+        write_csv('SpellIcon.racials', [[i, path] for i, path in sorted(ICONS.items())])
+        print(f'  {a.rows}: Spell, SkillLine, SkillLineAbility, SpellIcon.racials')
 
     # ---- SQL ------------------------------------------------------------
     def lit(f, x):

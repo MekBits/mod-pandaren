@@ -1,6 +1,7 @@
 """The pandaren rows of each client DBC, and how they go onto a base file.
 
-The rows live in client/rows/<Name>.csv: one column per 4-byte field, named
+The rows live in client/rows/<Name>.csv, and <Name>.<part>.csv when more than
+one generator writes rows for the same file: one column per 4-byte field, named
 c0..cN. String fields hold the text; every other field holds the raw unsigned
 32-bit value (floats included, so nothing is rounded on the way through).
 
@@ -16,10 +17,14 @@ Each DBC is applied in one of these ways:
 
 Three files are computed from the base instead of shipped as rows: CharBaseInfo
 (the race/class matrix), CharStartOutfit (the preview outfit, cloned from the
-source races) and SkillRaceClassInfo (the source races' masks mirrored).
+source races) and SkillRaceClassInfo (the source races' masks mirrored). One is
+edited after the rows are in: Achievement, whose "Know Thy Enemy" text counts
+the races.
 """
 import csv
+import glob
 import os
+import re
 import struct
 import sys
 
@@ -52,9 +57,22 @@ SCHEMAS = {
     'Spell': dict(mode='fixed', strings=_r(136, 152) + _r(153, 169) + _r(170, 186) + _r(187, 203)),
     'SkillLine': dict(mode='fixed', strings=_r(3, 19) + _r(20, 36) + _r(37, 53)),
     'SkillLineAbility': dict(mode='fixed', strings=[]),
+    'SpellIcon': dict(mode='fixed', strings=[1]),
+    'Achievement': dict(mode='fixed', strings=_r(4, 20) + _r(21, 37) + _r(43, 59)),
+    'Achievement_Criteria': dict(mode='fixed', strings=_r(9, 25)),
 }
 COMPUTED = ('CharBaseInfo', 'CharStartOutfit', 'SkillRaceClassInfo')
 ALL = list(SCHEMAS) + list(COMPUTED)
+
+
+def row_files(rows_dir, name):
+    """<name>.csv and every <name>.<part>.csv."""
+    files = [os.path.join(rows_dir, name + '.csv')] if \
+        os.path.exists(os.path.join(rows_dir, name + '.csv')) else []
+    files += sorted(glob.glob(os.path.join(glob.escape(rows_dir), name + '.*.csv')))
+    if not files:
+        sys.exit(f'{rows_dir}: no rows for {name}')
+    return files
 
 
 def read_rows(path, nfields, strings):
@@ -116,10 +134,26 @@ class Builder:
         self.d.write(path, rows=packed, strings=bytes(self.strings))
 
 
-def apply_rows(name, base_path, rows_dir, out_path, log):
+def identity(b, row, strings):
+    """What a row is, independent of the fields a rebuild may change: its first
+    string (a name or a path), or field 1 for a row without strings."""
+    return b.text(row, min(strings)) if strings else row[1]
+
+
+def apply_rows(name, base_path, rows_dir, out_path, log, ours_replaceable=False):
+    """ours_replaceable: the base may hold this module's rows from an earlier
+    build (building --over it). A fixed ID whose row differs is then replaced
+    when it is still the same thing (same name, path or parent), and refused
+    otherwise, because then another patch uses the ID."""
     sc = SCHEMAS[name]
     b = Builder(base_path)
-    ours = read_rows(os.path.join(rows_dir, name + '.csv'), b.n, set(sc['strings']))
+    ours = [r for path in row_files(rows_dir, name)
+            for r in read_rows(path, b.n, set(sc['strings']))]
+    if sc['mode'] == 'fixed':
+        ids = [v[0] for v, _ in ours]
+        dup = sorted({i for i in ids if ids.count(i) > 1})
+        if dup:
+            sys.exit(f'{name}: ID(s) {dup} appear in more than one row file')
     dropped = 0
     if sc['mode'] == 'race':
         keep = [r for r in b.rows if r[sc['race']] not in RACES]
@@ -147,7 +181,9 @@ def apply_rows(name, base_path, rows_dir, out_path, log):
             old = b.rows[i]
             same = all((b.text(old, c) == b.text(v, c)) if c in sc['strings'] else old[c] == v[c]
                        for c in range(b.n))
-            if not same and not sc.get('replace'):
+            ours_before = ours_replaceable and \
+                identity(b, old, sc['strings']) == identity(b, v, sc['strings'])
+            if not same and not sc.get('replace') and not ours_before:
                 sys.exit(f'{name}: ID {v[0]} is already used by a different row in the base '
                          f'file. Another patch claims it; the server SQL uses the same ID, '
                          f'so this cannot be renumbered here.')
@@ -234,6 +270,43 @@ def build_skillraceclassinfo(base_path, out_path, log):
         b.rows.append(list(SRCI_ROW))
     b.save(out_path)
     log('SkillRaceClassInfo', b.base_count, 0, len(b.rows), f'{changed} masks mirrored')
+
+
+NUMBERS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight',
+           'nine', 'ten', 'eleven', 'twelve']
+COUNTED = (246, 1005)                 # Know Thy Enemy, Alliance and Horde
+COUNT_TEXT = re.compile(r'\b(%s) different races' % '|'.join(NUMBERS))
+
+
+def count_races(dbcdir, log):
+    """Rewrite "on five different races" to the number of race criteria.
+
+    Every race module that adds a criterion to Know Thy Enemy makes the number in
+    its description wrong, so it is counted from the criteria the built file has
+    rather than written as a number. Text that does not say it this way is left
+    alone.
+    """
+    a = Builder(os.path.join(dbcdir, 'Achievement.dbc'))
+    c = DBC(os.path.join(dbcdir, 'Achievement_Criteria.dbc'))
+    count = {}
+    for r in c.rows:
+        v = c.ints(r)
+        if v[1] in COUNTED:
+            count[v[1]] = count.get(v[1], 0) + 1
+    changed = 0
+    for row in a.rows:
+        n = count.get(row[0], 0)
+        if row[0] not in COUNTED or not n or n >= len(NUMBERS):
+            continue
+        for col in range(21, 37):
+            text = a.text(row, col)
+            new = COUNT_TEXT.sub(NUMBERS[n] + ' different races', text)
+            if new != text:
+                row[col] = a.s(new)
+                changed += 1
+    a.save(os.path.join(dbcdir, 'Achievement.dbc'))
+    log('Achievement', a.base_count, 0, len(a.rows),
+        f'Know Thy Enemy: {count.get(246, 0)} / {count.get(1005, 0)} races ({changed} texts)')
 
 
 COMPUTE = {

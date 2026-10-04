@@ -10,13 +10,14 @@ Mists of Pandaria 5.4.8's own, converted to the 3.3.5a formats.
 |---|---|
 | Classes | Warrior, Hunter, Rogue, Priest, Shaman, Mage (MoP's list without Monk) |
 | Start | Alliance: Shadowglen (night elf). Horde: Valley of Trials (orc and troll) |
-| Racials | Quaking Palm, Inner Peace, Gourmand, Bouncy (see below) |
+| Racials | Quaking Palm, Inner Peace, Gourmand, Bouncy, with MoP's own icons (see below) |
 | Options | male 14 skin colours, 21 faces, 19 hairstyles, 14 hair colours, 31 beards; female 14/20/10/12 |
+| Achievements | Realm First! Level 80 Pandaren for each faction; pandaren in Know Thy Enemy, Check Your Head and Shake Your Bunny-Maker |
 
 It has two halves, and both are needed:
 
-- **the server module** (this repository): SQL only, applied by the database
-  updater. No core patch.
+- **the server module** (this repository): SQL applied by the database updater,
+  and one small achievement criteria script. No core patch.
 - **the client patch**: `patch-Z.MPQ` from the
   [releases](https://github.com/MekBits/mod-pandaren/releases). Character
   creation reads the races, options and models from the client's own files and
@@ -32,8 +33,8 @@ git clone https://github.com/MekBits/mod-pandaren.git
 ```
 
 Rebuild, and let the database updater apply `data/sql/db-world/`. The module has
-no config file and no C++ beyond an empty loader (the updater only reads SQL
-from modules that are compiled in).
+no config file; its only C++ is the criteria script the achievements use (and
+the updater only reads SQL from modules that are compiled in).
 
 On the next start `Server.log` shows 12 more player create definitions than
 before (`Loaded 74 Player Create Definitions` on an unmodified database), and
@@ -65,10 +66,16 @@ actually loads:
 python3 client/build_patch.py --client "/path/to/WoW" --assets patch-Z.MPQ --out patch-Z.MPQ
 ```
 
-It reads the 14 DBCs and the glue files from your client (ignoring any patch
-with the letter it builds for), adds the pandaren rows, and takes the models
-and textures from the released `patch-Z.MPQ`. It needs `tools/mpqx` and
+It reads the 17 DBCs and the glue files from your client (ignoring any patch
+with the letter it builds for), adds the pandaren rows, and takes the models,
+textures and icons from the released `patch-Z.MPQ`. It needs `tools/mpqx` and
 `tools/mpqpack`; see [Building the MPQ tools](#building-the-mpq-tools).
+
+If your own patch-Z carries more than pandaren, build on top of it instead:
+`--over <your patch-Z.MPQ>` reads it as part of the client and carries every
+file in it that the build does not generate, and
+`--only Achievement,Achievement_Criteria,SpellIcon,Spell`
+(for example) generates just those DBCs and carries the rest unchanged.
 
 ## Compatibility
 
@@ -126,6 +133,7 @@ such an override, so no DBC file on the server is replaced.
 | `10` | barber chairs (generated from the client rows) |
 | `11` | the race-gated Argent Tournament valiant quests |
 | `12` | the same weapon skills for both factions |
+| `13` | the achievements (generated) |
 
 Every file can run again: the updater re-runs a whole file whenever it changes.
 
@@ -166,6 +174,26 @@ Each racial is a copy of an existing 3.3.5a spell with named fields changed
 (`tools/gen-racial-spells.py`), so attribute and interrupt flags come from a
 spell that already works.
 
+### Achievements
+
+The realm firsts by race get **Realm First! Level 80 Pandaren**, one for each
+faction (1431 Alliance, 1432 Horde): pandaren are one people, but two race ids
+that never meet in a group. The achievements that list races one by one get a
+Pandaren criterion: Know Thy Enemy (the other faction's pandaren), Check Your
+Head and Shake Your Bunny-Maker. All of them require every criterion, so the new
+one is required like the others; a character that has already completed one
+keeps it.
+
+Check Your Head and Shake Your Bunny-Maker check the target's race with a data
+row that takes one race. Their Pandaren criterion uses the criteria script
+`achievement_pandaren_target` (`src/`) instead, which takes either race 20 or 21;
+the gender and level rows of Shake Your Bunny-Maker still apply. Holiday
+achievements that list fixed race and class combinations (Let It Snow, Fistful
+of Love, Turkey Lurkey) are left as Blizzard wrote them.
+
+The icons are MoP's own: `Achievement_Character_Pandaren_Female` for the realm
+firsts, `PandarenRacial_*` for the racials.
+
 ### Not included
 
 Monk, the neutral starting faction, the Wandering Isle and pandaren NPCs:
@@ -189,13 +217,18 @@ python3 tools/gen-startoutfit.py --dbc <dbc> --overrides charstartoutfit.tsv \
 # 08: racial spells
 python3 tools/gen-racial-spells.py --dbc <dbc> \
     --columns <azerothcore>/data/sql/base/db_world/spell_dbc.sql \
-    --spell-overrides spell.tsv \
+    --spell-overrides spell.tsv --rows client/rows \
     --sql data/sql/db-world/zz_pandaren_08-racial-spells.sql
 
 # 09: skill-line masks (--*-overrides: the current override tables)
 python3 tools/gen-race-skill-masks.py --dbc <dbc> \
     --srci-overrides srci.tsv --sla-overrides sla.tsv \
     --out data/sql/db-world/zz_pandaren_09-race-skill-masks.sql
+
+# 13: achievements (also writes their client rows)
+python3 tools/gen-achievements.py --dbc <client dbc> \
+    --columns <azerothcore>/data/sql/base/db_world --rows client/rows \
+    --sql data/sql/db-world/zz_pandaren_13-achievements.sql
 
 # 02 and 10 come from the client rows, so the two sides cannot drift apart
 python3 tools/gen-shared-sql.py --rows client/rows --out data/sql/db-world
@@ -214,7 +247,8 @@ pandaren cannot reach a skill line its source race can.
 |---|---|
 | `Character\Pandaren\` | the models and textures |
 | `Interface\Glues\Models\UI_Pandaren\` | the character-select scene |
-| `DBFilesClient\` | 14 DBCs: the client's own rows plus pandaren's (`client/rows/*.csv`) |
+| `DBFilesClient\` | 17 DBCs: the client's own rows plus pandaren's (`client/rows/*.csv`) |
+| `Interface\Icons\` | MoP's racial and achievement icons |
 | `Interface\GlueXML\` | two more race buttons, icons, flavour text and racials |
 | `UI-CharacterCreate-Races.blp` | the race icon atlas with the two pandaren icons |
 

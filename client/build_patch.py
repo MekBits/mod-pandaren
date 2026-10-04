@@ -18,12 +18,23 @@ adds pandaren to them.
               with that letter are ignored when reading the client, so an older
               build of this patch is not built upon.
 
+For a patch that carries more than pandaren (your own patch-Z with other
+changes in it), build on top of it instead of beside it:
+
+  --over      the existing patch with the same letter. It is read as the top of
+              the client, and every file in it that this build does not
+              generate is carried into the output unchanged.
+  --only      generate only these DBCs (comma-separated names), and carry
+              everything else from --over, glue files included. Rows this
+              module put there in an earlier build are replaced by the current
+              ones.
+
 Needs the two small StormLib tools in tools/ (mpqx to read, mpqpack to write);
 see the README for building them.
 
 What is generated from the client's own files:
 
-  DBFilesClient\\*.dbc     14 DBCs: the client's rows plus pandaren's
+  DBFilesClient\\*.dbc     17 DBCs: the client's rows plus pandaren's
   Interface\\GlueXML\\*     race buttons, icons, flavour text, racials
   UI-CharacterCreate-Races.blp   the two pandaren icons spliced in
 
@@ -54,6 +65,8 @@ ATLAS = 'Interface\\Glues\\CharacterCreate\\UI-CharacterCreate-Races.blp'
 # (DBCs, glue files, the atlas) is generated instead.
 ASSET_PREFIXES = ('character\\pandaren\\',
                   'interface\\glues\\models\\ui_pandaren\\',
+                  'interface\\icons\\pandarenracial_',
+                  'interface\\icons\\achievement_character_pandaren',
                   'world\\expansion04\\',
                   'world\\kalimdor\\hyjal\\lavaeffects\\')
 
@@ -139,6 +152,30 @@ def extract(tools, names, archives, outdir):
     return found
 
 
+def extract_all(tools, archive, outdir):
+    """Every file in an archive, by its own listfile."""
+    listing = mpqx(tools, 'list', archive)
+    names = [ln.split('\t')[1] for ln in listing.splitlines()
+             if '\t' in ln and ln.split('\t')[1] != '(listfile)']
+    extract(tools, names, [archive], outdir)
+
+
+def copy_tree(src, dst, keep=lambda key: True):
+    """Copy files under src into dst; key is the MPQ name, lowercased."""
+    n = 0
+    for root, _, files in os.walk(src):
+        for fn in files:
+            rel = os.path.relpath(os.path.join(root, fn), src)
+            key = rel.replace(os.sep, '\\').replace('/', '\\').lower()
+            if key == 'names.txt' or not keep(key):
+                continue
+            out = os.path.join(dst, rel)
+            os.makedirs(os.path.dirname(out), exist_ok=True)
+            shutil.copy2(os.path.join(root, fn), out)
+            n += 1
+    return n
+
+
 def splice_icons(src_path, dst_path):
     """Copy the two pandaren icons (column 6 of the 8x4 grid) between atlases.
 
@@ -180,11 +217,21 @@ def main():
     ap.add_argument('--assets', required=True)
     ap.add_argument('--out', required=True)
     ap.add_argument('--letter', default='Z')
+    ap.add_argument('--over')
+    ap.add_argument('--only')
     ap.add_argument('--tools', default=os.path.join(HERE, '..', 'tools'))
     a = ap.parse_args()
 
+    only = set(a.only.split(',')) if a.only else None
+    if only and not only <= set(dbcrows.ALL):
+        sys.exit(f'--only: unknown DBC(s) {sorted(only - set(dbcrows.ALL))}')
+    if only and not a.over:
+        sys.exit('--only needs --over: the files it does not build come from there')
+
     chain = archive_chain(a.client, a.letter)
-    print(f'reading {len(chain)} archives from {a.client}')
+    if a.over:
+        chain.append(a.over)
+    print(f'reading {len(chain)} archives from {a.client}' + (f' and {a.over}' if a.over else ''))
     work = tempfile.mkdtemp(prefix='pandaren-')
     try:
         tree = os.path.join(work, 'tree')
@@ -192,26 +239,30 @@ def main():
         os.makedirs(tree)
         os.makedirs(base)
 
+        def built(name):
+            return only is None or name in only
+
+        # --- carried from --over --------------------------------------------
+        if a.over:
+            over_root = os.path.join(work, 'over')
+            os.makedirs(over_root)
+            extract_all(a.tools, a.over, over_root)
+            generated = {f'dbfilesclient\\{n.lower()}.dbc' for n in dbcrows.ALL if built(n)}
+            for group in (('achievement', 'achievement_criteria'), ('spell', 'spellicon')):
+                if any(f'dbfilesclient\\{n}.dbc' in generated for n in group):
+                    generated |= {f'dbfilesclient\\{n}.dbc' for n in group}
+            if only is None:
+                generated |= {n.lower() for n in GLUE_FILES + [ATLAS]}
+            print(f'  {copy_tree(over_root, tree, lambda k: k not in generated)} files carried from {a.over}')
+
         # --- assets ---------------------------------------------------------
         if os.path.isdir(a.assets):
             asset_root = a.assets
         else:
             asset_root = os.path.join(work, 'assets')
             os.makedirs(asset_root)
-            listing = mpqx(a.tools, 'list', a.assets)
-            names = [ln.split('\t')[1] for ln in listing.splitlines()
-                     if '\t' in ln and ln.split('\t')[1] != '(listfile)']
-            extract(a.tools, names, [a.assets], asset_root)
-        copied = 0
-        for root, _, files in os.walk(asset_root):
-            for fn in files:
-                rel = os.path.relpath(os.path.join(root, fn), asset_root)
-                key = rel.replace('/', '\\').replace(os.sep, '\\').lower()
-                if key.startswith(ASSET_PREFIXES):
-                    dst = os.path.join(tree, rel)
-                    os.makedirs(os.path.dirname(dst), exist_ok=True)
-                    shutil.copy2(os.path.join(root, fn), dst)
-                    copied += 1
+            extract_all(a.tools, a.assets, asset_root)
+        copied = copy_tree(asset_root, tree, lambda k: k.startswith(ASSET_PREFIXES))
         if copied < 100:
             sys.exit(f'{a.assets}: only {copied} asset files found -- is this the pandaren patch?')
         icon_src = resolve(asset_root, ATLAS)
@@ -220,37 +271,49 @@ def main():
         print(f'  {copied} asset files')
 
         # --- DBCs -----------------------------------------------------------
-        names = [f'DBFilesClient\\{n}.dbc' for n in dbcrows.ALL]
-        got = extract(a.tools, names + GLUE_FILES + [ATLAS], chain, base)
-        missing = [n for n in names + GLUE_FILES + [ATLAS] if n not in got]
+        # Files that only make sense together: the Know Thy Enemy text counts
+        # the criteria, and the racials point at their icons.
+        wanted = [n for n in dbcrows.ALL if built(n)]
+        for group in (('Achievement', 'Achievement_Criteria'), ('Spell', 'SpellIcon')):
+            if any(n in wanted for n in group):
+                wanted += [n for n in group if n not in wanted]
+        names = [f'DBFilesClient\\{n}.dbc' for n in wanted]
+        files = names + (GLUE_FILES + [ATLAS] if only is None else [])
+        got = extract(a.tools, files, chain, base)
+        missing = [n for n in files if n not in got]
         if missing:
             sys.exit(f'not found in the client: {missing}')
         dbcdir = os.path.join(tree, 'DBFilesClient')
-        os.makedirs(dbcdir)
+        os.makedirs(dbcdir, exist_ok=True)
 
         print(f'  {"DBC":<28} {"base":>7} {"replaced":>9} {"result":>7}')
 
         def log(name, before, dropped, after, note=''):
             print(f'  {name:<28} {before:>7} {dropped:>9} {after:>7}  {note}')
         for n in dbcrows.SCHEMAS:
-            dbcrows.apply_rows(n, got[f'DBFilesClient\\{n}.dbc'],
-                               os.path.join(HERE, 'rows'), os.path.join(dbcdir, n + '.dbc'), log)
+            if n in wanted:
+                dbcrows.apply_rows(n, got[f'DBFilesClient\\{n}.dbc'], os.path.join(HERE, 'rows'),
+                                   os.path.join(dbcdir, n + '.dbc'), log, ours_replaceable=bool(a.over))
         for n, fn in dbcrows.COMPUTE.items():
-            fn(got[f'DBFilesClient\\{n}.dbc'], os.path.join(dbcdir, n + '.dbc'), log)
+            if n in wanted:
+                fn(got[f'DBFilesClient\\{n}.dbc'], os.path.join(dbcdir, n + '.dbc'), log)
+        if 'Achievement' in wanted:
+            dbcrows.count_races(dbcdir, log)
 
         # --- glue -----------------------------------------------------------
-        gdir = os.path.join(tree, 'Interface', 'GlueXML')
-        os.makedirs(gdir)
-        for n in GLUE_FILES:
-            shutil.copy2(got[n], os.path.join(gdir, n.split('\\')[-1]))
-        glue.patch(gdir, lambda m: print('  ' + m))
+        if only is None:
+            gdir = os.path.join(tree, 'Interface', 'GlueXML')
+            os.makedirs(gdir, exist_ok=True)
+            for n in GLUE_FILES:
+                shutil.copy2(got[n], os.path.join(gdir, n.split('\\')[-1]))
+            glue.patch(gdir, lambda m: print('  ' + m))
 
-        adir = os.path.join(tree, 'Interface', 'Glues', 'CharacterCreate')
-        os.makedirs(adir, exist_ok=True)
-        atlas = os.path.join(adir, 'UI-CharacterCreate-Races.blp')
-        shutil.copy2(got[ATLAS], atlas)
-        splice_icons(icon_src, atlas)
-        print('  race icons spliced into UI-CharacterCreate-Races.blp')
+            adir = os.path.join(tree, 'Interface', 'Glues', 'CharacterCreate')
+            os.makedirs(adir, exist_ok=True)
+            atlas = os.path.join(adir, 'UI-CharacterCreate-Races.blp')
+            shutil.copy2(got[ATLAS], atlas)
+            splice_icons(icon_src, atlas)
+            print('  race icons spliced into UI-CharacterCreate-Races.blp')
 
         # --- out ------------------------------------------------------------
         if a.out.lower().endswith('.mpq'):
