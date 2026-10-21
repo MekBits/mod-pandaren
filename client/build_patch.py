@@ -12,7 +12,8 @@ adds pandaren to them.
 
   --client    the WoW directory (the one with Wow.exe and Data/)
   --assets    the released patch-Z.MPQ, or a directory it was extracted to;
-              models, textures and the character-select scene are taken from it
+              models, textures, the character-select scene, voices, helmets
+              and icons are taken from it
   --out       the MPQ to write, or a directory when it does not end in .mpq
   --letter    the patch letter you will install it as (default Z). Archives
               with that letter are ignored when reading the client, so an older
@@ -34,7 +35,7 @@ see the README for building them.
 
 What is generated from the client's own files:
 
-  DBFilesClient\\*.dbc     17 DBCs: the client's rows plus pandaren's
+  DBFilesClient\\*.dbc     23 DBCs: the client's rows plus pandaren's
   Interface\\GlueXML\\*     race buttons, icons, flavour text, racials
   UI-CharacterCreate-Races.blp   the two pandaren icons spliced in
 
@@ -68,6 +69,10 @@ ASSET_PREFIXES = ('character\\pandaren\\',
                   'interface\\icons\\pandarenracial_',
                   'interface\\icons\\achievement_character_pandaren',
                   'world\\expansion04\\',
+                  'item\\objectcomponents\\head\\',
+                  'sound\\character\\pcpandaren',
+                  'world\\generic\\passivedoodads\\deathskeletons\\pandaren',
+                  'world\\generic\\passivedoodads\\deathskeletons\\panderan',
                   'world\\kalimdor\\hyjal\\lavaeffects\\')
 
 BASE_ARCHIVES = ['common.MPQ', 'common-2.MPQ', 'expansion.MPQ', 'lichking.MPQ']
@@ -248,9 +253,9 @@ def main():
             os.makedirs(over_root)
             extract_all(a.tools, a.over, over_root)
             generated = {f'dbfilesclient\\{n.lower()}.dbc' for n in dbcrows.ALL if built(n)}
-            for group in (('achievement', 'achievement_criteria'), ('spell', 'spellicon')):
-                if any(f'dbfilesclient\\{n}.dbc' in generated for n in group):
-                    generated |= {f'dbfilesclient\\{n}.dbc' for n in group}
+            for group in dbcrows.GROUPS:
+                if any(f'dbfilesclient\\{n.lower()}.dbc' in generated for n in group):
+                    generated |= {f'dbfilesclient\\{n.lower()}.dbc' for n in group}
             if only is None:
                 generated |= {n.lower() for n in GLUE_FILES + [ATLAS]}
             print(f'  {copy_tree(over_root, tree, lambda k: k not in generated)} files carried from {a.over}')
@@ -272,9 +277,10 @@ def main():
 
         # --- DBCs -----------------------------------------------------------
         # Files that only make sense together: the Know Thy Enemy text counts
-        # the criteria, and the racials point at their icons.
+        # the criteria, the racials point at their icons, and the skeleton and
+        # ice troll NPCs are moved by looking at the race tables.
         wanted = [n for n in dbcrows.ALL if built(n)]
-        for group in (('Achievement', 'Achievement_Criteria'), ('Spell', 'SpellIcon')):
+        for group in dbcrows.GROUPS:
             if any(n in wanted for n in group):
                 wanted += [n for n in group if n not in wanted]
         names = [f'DBFilesClient\\{n}.dbc' for n in wanted]
@@ -294,6 +300,8 @@ def main():
             if n in wanted:
                 dbcrows.apply_rows(n, got[f'DBFilesClient\\{n}.dbc'], os.path.join(HERE, 'rows'),
                                    os.path.join(dbcdir, n + '.dbc'), log, ours_replaceable=bool(a.over))
+                if n in dbcrows.POST:
+                    dbcrows.POST[n](os.path.join(dbcdir, n + '.dbc'), log)
         for n, fn in dbcrows.COMPUTE.items():
             if n in wanted:
                 fn(got[f'DBFilesClient\\{n}.dbc'], os.path.join(dbcdir, n + '.dbc'), log)
