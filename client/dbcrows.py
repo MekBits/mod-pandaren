@@ -15,11 +15,17 @@ Each DBC is applied in one of these ways:
           already in the base file with different content is an error, except
           where `replace` says the base row is ours to take.
 
-Three files are computed from the base instead of shipped as rows: CharBaseInfo
+  bits    Rows keyed by ID whose fields hold only the pandaren race bits. The
+          base row's bits 19 and 20 are replaced by them, the rest is kept.
+
+Four files are computed from the base instead of shipped as rows: CharBaseInfo
 (the race/class matrix), CharStartOutfit (the preview outfit, cloned from the
-source races) and SkillRaceClassInfo (the source races' masks mirrored). One is
-edited after the rows are in: Achievement, whose "Know Thy Enemy" text counts
-the races.
+source races), SkillRaceClassInfo (the source races' masks mirrored) and
+CreatureDisplayInfoExtra (the skeleton and ice troll NPCs moved off races 20
+and 21, tools/npcdisplays.py). Two are edited after the rows are in:
+SkillLineAbility, where the races that share a skill line's spells (a language,
+a weapon skill) get the pandaren bits as in the server SQL, and Achievement,
+whose "Know Thy Enemy" text counts the races.
 """
 import csv
 import glob
@@ -60,9 +66,21 @@ SCHEMAS = {
     'SpellIcon': dict(mode='fixed', strings=[1]),
     'Achievement': dict(mode='fixed', strings=_r(4, 20) + _r(21, 37) + _r(43, 59)),
     'Achievement_Criteria': dict(mode='fixed', strings=_r(9, 25)),
+    # MoP's own sounds: emotes, error voices, combat sounds and the files behind them
+    'EmotesTextSound': dict(mode='fixed', strings=[], ident=(1, 2)),
+    'VocalUISounds': dict(mode='fixed', strings=[], ident=(1, 2)),
+    'CreatureSoundData': dict(mode='fixed', strings=[]),
+    'SoundEntries': dict(mode='fixed', strings=_r(2, 13) + [23]),
+    'HelmetGeosetVisData': dict(mode='bits', strings=[], mask=sum(RACE_BIT.values())),
 }
-COMPUTED = ('CharBaseInfo', 'CharStartOutfit', 'SkillRaceClassInfo')
+COMPUTED = ('CharBaseInfo', 'CharStartOutfit', 'SkillRaceClassInfo', 'CreatureDisplayInfoExtra')
 ALL = list(SCHEMAS) + list(COMPUTED)
+
+# DBCs that only make sense together. Asking for one builds all of them.
+GROUPS = (('Achievement', 'Achievement_Criteria'),
+          ('Spell', 'SpellIcon'),
+          ('CreatureDisplayInfoExtra', 'CreatureDisplayInfo', 'CharSections', 'CharHairGeosets',
+           'CharacterFacialHairStyles'))
 
 
 def row_files(rows_dir, name):
@@ -134,10 +152,13 @@ class Builder:
         self.d.write(path, rows=packed, strings=bytes(self.strings))
 
 
-def identity(b, row, strings):
-    """What a row is, independent of the fields a rebuild may change: its first
-    string (a name or a path), or field 1 for a row without strings."""
-    return b.text(row, min(strings)) if strings else row[1]
+def identity(b, row, sc):
+    """What a row is, independent of the fields a rebuild may change: the
+    schema's `ident` fields, else its first string (a name or a path), else
+    field 1."""
+    if sc.get('ident'):
+        return tuple(row[c] for c in sc['ident'])
+    return b.text(row, min(sc['strings'])) if sc['strings'] else row[1]
 
 
 def apply_rows(name, base_path, rows_dir, out_path, log, ours_replaceable=False):
@@ -168,6 +189,18 @@ def apply_rows(name, base_path, rows_dir, out_path, log, ours_replaceable=False)
             for c, t in text.items():
                 v[c] = b.s(t)
             b.rows.append(v)
+    elif sc['mode'] == 'bits':
+        keepmask = ~sc['mask'] & 0xFFFFFFFF
+        index = {r[0]: r for r in b.rows}
+        for vals, _ in ours:
+            row = index.get(vals[0])
+            if row is None:
+                sys.exit(f'{name}: the base file has no row {vals[0]}')
+            for c in range(1, b.n):
+                new = (row[c] & keepmask) | (vals[c] & sc['mask'])
+                if new != row[c]:
+                    row[c] = new
+                    dropped += 1
     else:
         index = {r[0]: i for i, r in enumerate(b.rows)}
         for vals, text in ours:
@@ -181,12 +214,12 @@ def apply_rows(name, base_path, rows_dir, out_path, log, ours_replaceable=False)
             old = b.rows[i]
             same = all((b.text(old, c) == b.text(v, c)) if c in sc['strings'] else old[c] == v[c]
                        for c in range(b.n))
-            ours_before = ours_replaceable and \
-                identity(b, old, sc['strings']) == identity(b, v, sc['strings'])
+            ours_before = ours_replaceable and identity(b, old, sc) == identity(b, v, sc)
             if not same and not sc.get('replace') and not ours_before:
                 sys.exit(f'{name}: ID {v[0]} is already used by a different row in the base '
-                         f'file. Another patch claims it; the server SQL uses the same ID, '
-                         f'so this cannot be renumbered here.')
+                         f'file. Another patch claims it. The IDs are fixed (the server SQL '
+                         f'uses the same ones where the server reads the table), so they '
+                         f'cannot be renumbered here.')
             b.rows[i] = v
             dropped += 1
     b.save(out_path)
@@ -272,6 +305,39 @@ def build_skillraceclassinfo(base_path, out_path, log):
     log('SkillRaceClassInfo', b.base_count, 0, len(b.rows), f'{changed} masks mirrored')
 
 
+def mirror_skilllineability(path, log):
+    """The spells a skill line hands out and the languages the client lets you
+    speak are decided by SkillLineAbility's race mask, on the client as well as
+    on the server. A language row (668 Common, 669 Orcish) without the race's
+    bit gives "You can't speak that language". Same rule as the server's
+    zz_pandaren_09 and as SkillRaceClassInfo above."""
+    b = Builder(path)
+    changed = 0
+    for r in b.rows:
+        m = mirror(r[3], r[4])
+        if m != r[3]:
+            r[3] = m
+            changed += 1
+    b.save(path)
+    log('SkillLineAbility', b.base_count, 0, len(b.rows), f'{changed} masks mirrored')
+
+
+def build_npc_displays(base_path, out_path, log):
+    """The skeleton and ice troll NPCs off races 20 and 21 (tools/npcdisplays.py).
+
+    Edits CharSections and CharacterFacialHairStyles next to out_path, which
+    must be built already, and writes the moved CreatureDisplayInfoExtra there.
+    """
+    import npcdisplays
+    extras, _, cs_ids, _ = npcdisplays.fix(os.path.dirname(out_path), base_path, out_path)
+    count = len(DBC(out_path).rows)
+    log('CreatureDisplayInfoExtra', count, len(extras), count,
+        f'{len(extras)} rows moved to troll/vrykul, {len(cs_ids)} vrykul skin rows')
+
+
+# Edits after a DBC's rows are in.
+POST = {'SkillLineAbility': mirror_skilllineability}
+
 NUMBERS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight',
            'nine', 'ten', 'eleven', 'twelve']
 COUNTED = (246, 1005)                 # Know Thy Enemy, Alliance and Horde
@@ -313,4 +379,5 @@ COMPUTE = {
     'CharBaseInfo': build_charbaseinfo,
     'CharStartOutfit': build_charstartoutfit,
     'SkillRaceClassInfo': build_skillraceclassinfo,
+    'CreatureDisplayInfoExtra': build_npc_displays,
 }

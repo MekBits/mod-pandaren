@@ -24,8 +24,8 @@ DELETE FROM `creaturemodeldata_dbc` WHERE `ID` IN (3700, 3701);
 DELETE FROM `creaturedisplayinfo_dbc` WHERE `ID` IN (39500, 39501);
 
 INSERT INTO `creaturemodeldata_dbc` (`ID`, `Flags`, `ModelName`, `SizeClass`, `ModelScale`, `BloodID`, `FootprintTextureID`, `FootprintTextureLength`, `FootprintTextureWidth`, `FootprintParticleScale`, `FoleyMaterialID`, `FootstepShakeSize`, `DeathThudShakeSize`, `SoundID`, `CollisionWidth`, `CollisionHeight`, `MountHeight`, `GeoBoxMinX`, `GeoBoxMinY`, `GeoBoxMinZ`, `GeoBoxMaxX`, `GeoBoxMaxY`, `GeoBoxMaxZ`, `WorldEffectScale`, `AttachedEffectScale`, `MissileCollisionRadius`, `MissileCollisionPush`, `MissileCollisionRaise`) VALUES
-  (3700, 4, 'Character\\Pandaren\\Male\\PandarenMale.mdx', 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.611111104, 2.03127789, 1.036183, -0.576729, -0.544345021, -0.000693999988, 0.368137002, 0.535902023, 2.12919998, 1, 1, 0, 0, 0),
-  (3701, 4, 'Character\\Pandaren\\Female\\PandarenFemale.mdx', 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.611111104, 2.03127789, 1.00263703, -0.487307012, -0.359981, -0.00222299993, 0.275954992, 0.370420992, 1.92493498, 1, 1, 0, 0, 0);
+  (3700, 4, 'Character\\Pandaren\\Male\\PandarenMale.mdx', 1, 1, 1, 1, 12, 14, 1, 0, 0, 0, 4012, 0.611111104, 2.03127789, 1.036183, -0.576729, -0.544345021, -0.000693999988, 0.368137002, 0.535902023, 2.12919998, 1, 1, 0, 0, 0),
+  (3701, 4, 'Character\\Pandaren\\Female\\PandarenFemale.mdx', 1, 1, 1, 1, 12, 14, 1, 0, 0, 0, 4080, 0.611111104, 2.03127789, 1.00263703, -0.487307012, -0.359981, -0.00222299993, 0.275954992, 0.370420992, 1.92493498, 1, 1, 0, 0, 0);
 
 INSERT INTO `creaturedisplayinfo_dbc` (`ID`, `ModelID`, `SoundID`, `ExtendedDisplayInfoID`, `CreatureModelScale`, `CreatureModelAlpha`, `TextureVariation_1`, `TextureVariation_2`, `TextureVariation_3`, `PortraitTextureName`, `BloodLevel`, `BloodID`, `NPCSoundID`, `ParticleColorID`, `CreatureGeosetData`, `ObjectEffectPackageID`) VALUES
   (39500, 3700, 0, 0, 1, 255, '', '', '', '', 0, 0, 0, 0, 0, 0),

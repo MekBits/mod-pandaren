@@ -13,6 +13,8 @@ Mists of Pandaria 5.4.8's own, converted to the 3.3.5a formats.
 | Racials | Quaking Palm, Inner Peace, Gourmand, Bouncy, with MoP's own icons (see below) |
 | Options | male 14 skin colours, 21 faces, 19 hairstyles, 14 hair colours, 31 beards; female 14/20/10/12 |
 | Achievements | Realm First! Level 80 Pandaren for each faction; pandaren in Know Thy Enemy, Check Your Head and Shake Your Bunny-Maker |
+| Voice and gear | MoP's own emote, error and combat voices, footsteps and blood; MoP's helmet models and death skeleton |
+| Content | Quests, vendors, trainers and phases that have one version per race also work for pandaren (they follow night elf and troll) |
 
 It has two halves, and both are needed:
 
@@ -36,9 +38,26 @@ Rebuild, and let the database updater apply `data/sql/db-world/`. The module has
 no config file; its only C++ is the criteria script the achievements use (and
 the updater only reads SQL from modules that are compiled in).
 
+The core needs the override tables `charsections_dbc` and `emotestextsound_dbc`,
+which its update `2026_09_21_05` creates (azerothcore-wotlk and the
+mod-playerbots fork both have it). `30` and `31` write to them; on an older core
+the updater stops at the first of the two.
+
 On the next start `Server.log` shows 12 more player create definitions than
 before (`Loaded 74 Player Create Definitions` on an unmodified database), and
 no `not found in DBC` or `wrong teamid`. `chrraces_dbc` is only read at startup.
+
+### Updating from v1.1
+
+Update the server and the client together: build the server, let the updater
+run, and give every player the new `patch-Z.MPQ` (it replaces the v1.1 file).
+
+The updater re-runs the files whose content changed (`02`, `08`) and the new
+ones (`20`-`23`, `30`, `31`). Nothing is done by hand, and the result is the
+same as on a fresh database. Pandaren characters made under v1.1 keep working;
+they get the racials the next time they log in. If you built your own patch
+with `build_patch.py`, build it again (see
+[A client with other patches](#a-client-with-other-patches)).
 
 ### Client
 
@@ -66,16 +85,20 @@ actually loads:
 python3 client/build_patch.py --client "/path/to/WoW" --assets patch-Z.MPQ --out patch-Z.MPQ
 ```
 
-It reads the 17 DBCs and the glue files from your client (ignoring any patch
+It reads the 23 DBCs and the glue files from your client (ignoring any patch
 with the letter it builds for), adds the pandaren rows, and takes the models,
-textures and icons from the released `patch-Z.MPQ`. It needs `tools/mpqx` and
-`tools/mpqpack`; see [Building the MPQ tools](#building-the-mpq-tools).
+textures, icons, voices and helmets from the released `patch-Z.MPQ`. It needs
+`tools/mpqx` and `tools/mpqpack`; see
+[Building the MPQ tools](#building-the-mpq-tools).
 
 If your own patch-Z carries more than pandaren, build on top of it instead:
 `--over <your patch-Z.MPQ>` reads it as part of the client and carries every
 file in it that the build does not generate, and
 `--only Achievement,Achievement_Criteria,SpellIcon,Spell`
-(for example) generates just those DBCs and carries the rest unchanged.
+(for example) generates just those DBCs and carries the rest unchanged. A
+DBC that only works together with others brings them along: asking for
+`CreatureDisplayInfoExtra` builds `CharSections`, `CharHairGeosets`,
+`CharacterFacialHairStyles` and `CreatureDisplayInfo` too.
 
 ## Compatibility
 
@@ -90,7 +113,13 @@ file in it that the build does not generate, and
   opens more race/class combinations): `05`, `07` and `09` are generated from
   an unmodified client's DBC files. Generate them from yours instead (see
   [Generated SQL](#generated-sql)), or the factions, outfits and skill lines
-  they list fall back to stock values.
+  they list fall back to stock values. `30` is generated the same way from the
+  skeleton and ice troll displays your client has.
+- **Content masks** (`04`, `20`-`23`): every change is an `|` on the race masks
+  that are there, so it adds to whatever another module has done, and running a
+  file again changes nothing. A module that adds race-gated quests, vendors or
+  phases after this one is not covered: the checks at the end of `20` and `22`
+  list what is left.
 - **mod-individual-progression**: it rewrites the start outfits and weapon
   skills of the classic races. Generate `07` against the database after it has
   run, and `12` gives both pandaren races the union of the night elf and troll
@@ -111,7 +140,14 @@ a fixed array of 22 × 2, without a bounds check, so a race above 21 writes past
 its end and crashes the client. Races 13-19 are used by creatures (naga,
 broken, vrykul, ...) through `CreatureDisplayInfoExtra`, so taking one of them
 would turn those creatures into pandaren. 20 and 21 (Northrend Skeleton and Ice
-Troll) are dead data: every display row for them is baked, and none is used.
+Troll) have the fewest rows in use, but they are not free: 30 rows of race 20
+(41 displays, skeletons) and all 89 of race 21 (104 displays, the Drakkari of
+Zul'Drak and Grizzly Hills) are NPCs. Their baked texture covers only the body;
+the client takes hair, beards, skin extras and helmets from the extra row's
+race, which would now be pandaren. The patch therefore moves those NPCs to
+vrykul (16) and troll (8), whose lookups give what 3.3.5 gave them, and `30`
+makes the same change on the server (it reads the race for holiday costumes and
+for mounting while transformed). `tools/npcdisplays.py` has the details.
 
 ### The server side is SQL overrides
 
@@ -134,6 +170,12 @@ such an override, so no DBC file on the server is replaced.
 | `11` | the race-gated Argent Tournament valiant quests |
 | `12` | the same weapon skills for both factions |
 | `13` | the achievements (generated) |
+| `20` | the faction masks outside quests and items: phases and auras (`spell_area`), gossip and AI conditions, a level 71 letter, the Northrend ghost flyer, and the refusal texts of the race riding trainers |
+| `21` | the Darnassus and Sen'jin riding trainers and mount vendors (Jartsam, Lelanai, Xar'Ti, Zjolnir) |
+| `22` | the quests only night elf, or only orc/troll/goblin, may take: the start zones' "Welcome!", the flight intros, and the copies for every Alliance or Horde race but one |
+| `23` | content with one version per race: Hallow's End "Honoring a Hero", the Argent Tournament quartermasters, the Caverns of Time illusion |
+| `30` | the skeleton and ice troll NPC displays moved off races 20 and 21 (generated) |
+| `31` | the pandaren emote sounds (generated from the client rows) |
 
 Every file can run again: the updater re-runs a whole file whenever it changes.
 
@@ -150,6 +192,15 @@ A few things that fail silently if they are wrong:
   `SkillRaceClassInfo` row for the race and class, and `_LoadSkills` deletes
   such skills at login. Without `09` a pandaren gets none of its racials, no
   language and no mounts.
+- **`Player::learnSkillRewardedSpells` skips a `SkillLineAbility` row** whose
+  `AcquireMethod` is not 1 or 2, again without a log line. The racial rows in
+  `08` have `AcquireMethod` 2 and `MinSkillLineRank` 1, as worgen's have; with
+  the column left at 0 a pandaren has no racials.
+- **Anything gated to one race, or to a group of races, matches no pandaren.**
+  A quest for night elves only, a trainer that talks to its own race, a phase
+  for "every Alliance race" all go by race masks, and the stock races are the
+  only bits in them. `04` and `20`-`23` give pandaren the bits of their source
+  race; the content simply does not appear otherwise, without an error.
 
 ### Source races
 
@@ -230,7 +281,11 @@ python3 tools/gen-achievements.py --dbc <client dbc> \
     --columns <azerothcore>/data/sql/base/db_world --rows client/rows \
     --sql data/sql/db-world/zz_pandaren_13-achievements.sql
 
-# 02 and 10 come from the client rows, so the two sides cannot drift apart
+# 30: the skeleton and ice troll NPC displays (the same function moves them in the client patch)
+python3 tools/gen-npc-displays.py --dbc <client dbc> \
+    --out data/sql/db-world/zz_pandaren_30-npc-displays.sql
+
+# 02, 10 and 31 come from the client rows, so the two sides cannot drift apart
 python3 tools/gen-shared-sql.py --rows client/rows --out data/sql/db-world
 ```
 
@@ -247,10 +302,13 @@ pandaren cannot reach a skill line its source race can.
 |---|---|
 | `Character\Pandaren\` | the models and textures |
 | `Interface\Glues\Models\UI_Pandaren\` | the character-select scene |
-| `DBFilesClient\` | 17 DBCs: the client's own rows plus pandaren's (`client/rows/*.csv`) |
+| `DBFilesClient\` | 23 DBCs: the client's own rows plus pandaren's (`client/rows/*.csv`), and the skeleton and ice troll NPCs moved off races 20 and 21 |
 | `Interface\Icons\` | MoP's racial and achievement icons |
 | `Interface\GlueXML\` | two more race buttons, icons, flavour text and racials |
 | `UI-CharacterCreate-Races.blp` | the race icon atlas with the two pandaren icons |
+| `Sound\Character\PCPandaren*\` | MoP's pandaren voices: combat, emotes and error lines (WAV, 22 kHz mono, as the 3.3.5a voices) |
+| `Item\ObjectComponents\Head\` | MoP's helmet models for pandaren (`_PaM`, `_PaF`) |
+| `World\Generic\PassiveDoodads\DeathSkeletons\` | the pandaren death skeletons |
 
 The models are MoP's M2s (version 272) converted to 3.3.5a's version 264. The
 pandaren head is drawn on a larger face area than 3.3.5a's fixed character
@@ -262,6 +320,32 @@ hairstyles, so those ten are offered.
 The character-creation buttons are laid out at runtime from the client's own
 faction data rather than from fixed anchors, so the screen works with any
 number of races per faction.
+
+### Voices, helmets and the death skeleton
+
+The rows are MoP's: `CreatureSoundData` 4012 and 4080 for the combat sounds,
+`EmotesTextSound` 1400-1575 for `/laugh`, `/cheer` and the other emotes,
+`VocalUISounds` 1100-1233 for the "Not enough rage" lines, and 144 new
+`SoundEntries` for the files, plus `BaseFootprint` and red blood on the model.
+Where MoP has no pandaren line for an emote (`/bored`, five error lines) the
+tauren's is used, and `/moo` is silent. MoP's `/whistle` uses a file the 3.3.5a
+client already has, so none is shipped.
+
+The patch carries pandaren versions of 279 helmet models (`_PaM` and `_PaF`,
+converted from MoP's). The seven helmets MoP has no pandaren version of (the
+tuskarr and vrykul helmets, the Black Bunny Ears and the Raid Robe hood) are
+worn invisibly. A helmet must also say what it hides, so `HelmetGeosetVisData`
+gets the pandaren bits (bits 19 and 20 of each field, taken from the bits MoP
+sets for its own pandaren).
+
+### Skill lines on the client
+
+The client decides from its own `SkillLineAbility` which spells belong to the
+player's race, and which languages the player can speak: a chat line in Common
+or Orcish whose row lacks the race's bit is refused by the client itself
+("You can't speak that language"). The builder therefore gives the rows that
+several races share the pandaren bits by the same rule as `09` (night elf for
+race 20, troll for race 21), the way it already did for `SkillRaceClassInfo`.
 
 ### Building the MPQ tools
 
@@ -288,6 +372,11 @@ What catches the silent failures:
   must contain 791 (the racial line), 98 or 109 (the language), 777 and 778.
   Racials are never in `character_spell`; they are re-derived at every login.
 - Count the options in character creation (see the table at the top).
+- Say something in chat, use `/laugh` and `/cheer`, and wear a helmet of cloth,
+  leather, mail and plate: the voice, the emote sound and the helmet shape are
+  the signs that the sound and helmet rows reached the client.
+- Look at a Drakkari ice troll in Zul'Drak and at a skeleton NPC from
+  Northrend: hair, beards and bones as before, no pandaren fur.
 - Visit a barber with each sex, and check you get the style you picked.
 - Play in the world as well as in character creation: the world renderer has
   failure modes the creation screen does not.
@@ -307,6 +396,6 @@ would be pandaren that the client cannot draw.
 The code and SQL in this repository are licensed under the GNU AGPL v3, see
 [LICENSE](LICENSE).
 
-The client patch contains models, textures and data from *World of Warcraft:
-Mists of Pandaria* 5.4.8, © Blizzard Entertainment, converted to the 3.3.5a
-formats. They are not covered by the license above.
+The client patch contains models, textures, sounds and data from *World of
+Warcraft: Mists of Pandaria* 5.4.8, © Blizzard Entertainment, converted to the
+3.3.5a formats. They are not covered by the license above.
