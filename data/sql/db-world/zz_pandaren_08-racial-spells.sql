@@ -19,8 +19,9 @@ INSERT INTO `spell_dbc` (`ID`, `Category`, `DispelType`, `Mechanic`, `Attributes
 
 -- The racial skill line. Racials are handed out by the player GETTING the
 -- skill at creation (playercreateinfo_skills), after which
--- learnSkillRewardedSpells() teaches everything in SkillLineAbility --
--- exactly how skill 789 "Racial - Worgen" works.
+-- learnSkillRewardedSpells() teaches the SkillLineAbility rows with
+-- AcquireMethod 2 (learned with the skill) -- exactly how skill 789
+-- "Racial - Worgen" works. A row without it is skipped, without a log line.
 DELETE FROM `skillline_dbc` WHERE `ID` = 791;
 INSERT INTO `skillline_dbc` (`ID`, `CategoryID`, `DisplayName_Lang_enUS`, `DisplayName_Lang_Mask`)
   VALUES (791, 9, 'Racial - Pandaren', 16712190);
@@ -32,11 +33,11 @@ INSERT INTO `skillline_dbc` (`ID`, `CategoryID`, `DisplayName_Lang_enUS`, `Displ
 DELETE FROM `skilllineability_dbc`
   WHERE `SkillLine` = 791 AND `ID` NOT BETWEEN 31600 AND 31603;
 DELETE FROM `skilllineability_dbc` WHERE `ID` BETWEEN 31600 AND 31603;
-INSERT INTO `skilllineability_dbc` (`ID`, `SkillLine`, `Spell`, `RaceMask`, `ClassMask`) VALUES
-  (31600, 791, 80001, 1572864, 0),
-  (31601, 791, 80002, 1572864, 0),
-  (31602, 791, 80003, 1572864, 0),
-  (31603, 791, 80004, 1572864, 0);
+INSERT INTO `skilllineability_dbc` (`ID`, `SkillLine`, `Spell`, `RaceMask`, `ClassMask`, `MinSkillLineRank`, `AcquireMethod`) VALUES
+  (31600, 791, 80001, 1572864, 0, 1, 2),
+  (31601, 791, 80002, 1572864, 0, 1, 2),
+  (31602, 791, 80003, 1572864, 0, 1, 2),
+  (31603, 791, 80004, 1572864, 0, 1, 2);
 
 -- And the gate in front of it all. `Player::LearnDefaultSkill` starts with
 --     SkillRaceClassInfoEntry const* rcInfo = GetSkillRaceClassInfo(...);

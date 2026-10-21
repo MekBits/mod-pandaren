@@ -71,6 +71,11 @@ SKILL_CATEGORY = 9                   # what 126/733/789 use -- the racial catego
 RACE_MASK = (1 << 19) | (1 << 20)    # races 20 and 21
 CLASS_MASK = 1 | 4 | 8 | 16 | 64 | 128   # 221: warrior, hunter, rogue, priest, shaman, mage
 
+# Player::learnSkillRewardedSpells() teaches only SkillLineAbility rows with
+# AcquireMethod 1 or 2 and skips the rest without a log line. Skill 789
+# "Racial - Worgen" has 1 / 2 as well. Server and client rows are the same.
+SLA_MIN_RANK, SLA_ACQUIRE = 1, 2
+
 # A FREE ID IS FREE IN THE FILE **AND** IN THE OVERRIDE TABLE.
 #
 # SkillLineAbility.dbc tops out at 31448, but 31500 is taken in the table:
@@ -272,6 +277,7 @@ def main():
     for i, sp in enumerate(RACIALS):
         v = [0] * n
         v[0], v[1], v[2], v[3] = SLA_FIRST_ID + i, SKILL_LINE, sp['id'], RACE_MASK
+        v[7], v[9] = SLA_MIN_RANK, SLA_ACQUIRE       # MinSkillLineRank, AcquireMethod
         slarows.append(struct.pack('<%dI' % n, *v))
         slasql.append((SLA_FIRST_ID + i, sp['id']))
     if a.rows:
@@ -322,8 +328,9 @@ def main():
     body += ['',
              '-- The racial skill line. Racials are handed out by the player GETTING the',
              '-- skill at creation (playercreateinfo_skills), after which',
-             '-- learnSkillRewardedSpells() teaches everything in SkillLineAbility --',
-             '-- exactly how skill 789 "Racial - Worgen" works.',
+             '-- learnSkillRewardedSpells() teaches the SkillLineAbility rows with',
+             '-- AcquireMethod 2 (learned with the skill) -- exactly how skill 789',
+             '-- "Racial - Worgen" works. A row without it is skipped, without a log line.',
              'DELETE FROM `skillline_dbc` WHERE `ID` = %d;' % SKILL_LINE,
              "INSERT INTO `skillline_dbc` (`ID`, `CategoryID`, `DisplayName_Lang_enUS`, `DisplayName_Lang_Mask`)",
              "  VALUES (%d, %d, '%s', 16712190);" % (SKILL_LINE, SKILL_CATEGORY, SKILL_LINE_NAME),
@@ -339,8 +346,10 @@ def main():
              % (SKILL_LINE, SLA_FIRST_ID, SLA_FIRST_ID + len(RACIALS) - 1),
              'DELETE FROM `skilllineability_dbc` WHERE `ID` BETWEEN %d AND %d;'
              % (SLA_FIRST_ID, SLA_FIRST_ID + len(RACIALS) - 1),
-             'INSERT INTO `skilllineability_dbc` (`ID`, `SkillLine`, `Spell`, `RaceMask`, `ClassMask`) VALUES']
-    body.append(',\n'.join('  (%d, %d, %d, %d, 0)' % (i, SKILL_LINE, s, RACE_MASK)
+             'INSERT INTO `skilllineability_dbc` (`ID`, `SkillLine`, `Spell`, `RaceMask`,'
+             ' `ClassMask`, `MinSkillLineRank`, `AcquireMethod`) VALUES']
+    body.append(',\n'.join('  (%d, %d, %d, %d, 0, %d, %d)'
+                           % (i, SKILL_LINE, s, RACE_MASK, SLA_MIN_RANK, SLA_ACQUIRE)
                            for i, s in slasql) + ';')
     body += ['',
              '-- And the gate in front of it all. `Player::LearnDefaultSkill` starts with',
