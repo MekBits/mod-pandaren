@@ -375,8 +375,8 @@ What catches the silent failures:
 - Say something in chat, use `/laugh` and `/cheer`, and wear a helmet of cloth,
   leather, mail and plate: the voice, the emote sound and the helmet shape are
   the signs that the sound and helmet rows reached the client.
-- Look at a Drakkari ice troll in Zul'Drak and at a Northrend skeleton (the
-  Scourge in Icecrown): hair, beards and bones as before, no pandaren fur.
+- Look at a Drakkari ice troll in Zul'Drak and at a skeleton NPC from
+  Northrend: hair, beards and bones as before, no pandaren fur.
 - Visit a barber with each sex, and check you get the style you picked.
 - Play in the world as well as in character creation: the world renderer has
   failure modes the creation screen does not.
