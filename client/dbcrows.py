@@ -217,8 +217,9 @@ def apply_rows(name, base_path, rows_dir, out_path, log, ours_replaceable=False)
             ours_before = ours_replaceable and identity(b, old, sc) == identity(b, v, sc)
             if not same and not sc.get('replace') and not ours_before:
                 sys.exit(f'{name}: ID {v[0]} is already used by a different row in the base '
-                         f'file. Another patch claims it; the server SQL uses the same ID, '
-                         f'so this cannot be renumbered here.')
+                         f'file. Another patch claims it. The IDs are fixed (the server SQL '
+                         f'uses the same ones where the server reads the table), so they '
+                         f'cannot be renumbered here.')
             b.rows[i] = v
             dropped += 1
     b.save(out_path)
